@@ -10,9 +10,16 @@ from typing import Any, List, Optional
 from langchain.callbacks.manager import CallbackManagerForLLMRun
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
+from langchain.document_loaders import UnstructuredFileLoader
+from langchain.document_loaders import UnstructuredMarkdownLoader
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.vectorstores import Chroma
+from langchain.embeddings.huggingface import HuggingFaceEmbeddings
+from tqdm import tqdm
+import os
 
 # 下载词向量模型
-os.system('huggingface-cli download --resume-download sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 --local-dir /home/xlab-app-center/model/sentence-transformer')
+# os.system('huggingface-cli download --resume-download sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 --local-dir /home/xlab-app-center/model/sentence-transformer')
 
 # 下载模型
 from openxlab.model import download
@@ -58,13 +65,13 @@ def load_chain():
     embeddings = HuggingFaceEmbeddings(model_name="/home/xlab-app-center/model/sentence-transformer")
 
     # 向量数据库持久化路径
-    persist_directory = 'data_base/vector_db/chroma'
+    # persist_directory = 'data_base/vector_db/chroma'
 
     # 加载数据库
-    vectordb = Chroma(
-        persist_directory=persist_directory,  # 允许我们将persist_directory目录保存到磁盘上
-        embedding_function=embeddings
-    )
+    # vectordb = Chroma(
+    #     persist_directory=persist_directory,  # 允许我们将persist_directory目录保存到磁盘上
+    #     embedding_function=embeddings
+    # )
 
     # 加载自定义 LLM
     llm = InternLM_LLM(model_path = "/home/xlab-app-center/.cache/model/OpenLMLab/InternLM-chat-7b")
@@ -79,7 +86,7 @@ def load_chain():
     QA_CHAIN_PROMPT = PromptTemplate(input_variables=["context","question"],template=template)
 
     # 运行 chain
-    qa_chain = RetrievalQA.from_chain_type(llm,retriever=vectordb.as_retriever(),return_source_documents=True,chain_type_kwargs={"prompt":QA_CHAIN_PROMPT})
+    qa_chain = RetrievalQA.from_chain_type(llm,return_source_documents=True,chain_type_kwargs={"prompt":QA_CHAIN_PROMPT})
     
     return qa_chain
 

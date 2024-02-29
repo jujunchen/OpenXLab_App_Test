@@ -1,153 +1,123 @@
+"""
+This script refers to the dialogue example of streamlit, the interactive generation code of chatglm2 and transformers.
+We mainly modified part of the code logic to adapt to the generation of our model.
+Please refer to these links below for more information:
+    1. streamlit chat example: https://docs.streamlit.io/knowledge-base/tutorials/build-conversational-apps
+    2. chatglm2: https://github.com/THUDM/ChatGLM2-6B
+    3. transformers: https://github.com/huggingface/transformers
+"""
 
-from langchain.vectorstores import Chroma
-from langchain.embeddings.huggingface import HuggingFaceEmbeddings
-import os
-from langchain.prompts import PromptTemplate
-from langchain.chains import RetrievalQA
-import gradio as gr
-from langchain.llms.base import LLM
-from typing import Any, List, Optional
-from langchain.callbacks.manager import CallbackManagerForLLMRun
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from dataclasses import asdict
+
+import streamlit as st
 import torch
-from langchain.document_loaders import UnstructuredFileLoader
-from langchain.document_loaders import UnstructuredMarkdownLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.vectorstores import Chroma
-from langchain.embeddings.huggingface import HuggingFaceEmbeddings
-from tqdm import tqdm
-import os
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers.utils import logging
 
-# 下载词向量模型
-# os.system('huggingface-cli download --resume-download sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 --local-dir /home/xlab-app-center/model/sentence-transformer')
+from tools.transformers.interface import GenerationConfig, generate_interactive
 
-# 下载模型
+logger = logging.get_logger(__name__)
+
 from openxlab.model import download
 download(model_repo='OpenLMLab/InternLM-chat-7b', 
         model_name='internlm-chat-7b', output='/home/xlab-app-center')
 
-class InternLM_LLM(LLM):
-    # 基于本地 InternLM 自定义 LLM 类
-    tokenizer : AutoTokenizer = None
-    model: AutoModelForCausalLM = None
 
-    def __init__(self, model_path :str):
-        # model_path: InternLM 模型路径
-        # 从本地初始化模型
-        super().__init__()
-        # print("正在从本地加载模型...")
-        # self.tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
-        # self.model = AutoModelForCausalLM.from_pretrained(model_path, trust_remote_code=True).to(torch.bfloat16).cuda()
-        # self.model = self.model.eval()
-        # print("完成本地模型的加载")
-
-    def _call(self, prompt : str, stop: Optional[List[str]] = None,
-                run_manager: Optional[CallbackManagerForLLMRun] = None,
-                **kwargs: Any):
-        # 重写调用函数
-        system_prompt = """You are an AI assistant whose name is InternLM (书生·浦语).
-        - InternLM (书生·浦语) is a conversational language model that is developed by Shanghai AI Laboratory (上海人工智能实验室). It is designed to be helpful, honest, and harmless.
-        - InternLM (书生·浦语) can understand and communicate fluently in the language chosen by the user such as English and 中文.
-        """
-        
-        messages = [(system_prompt, '')]
-        response, history = self.model.chat(self.tokenizer, prompt , history=messages)
-        return response
-        
-    @property
-    def _llm_type(self) -> str:
-        return "InternLM"
+def on_btn_click():
+    del st.session_state.messages
 
 
-def load_chain():
-    # 加载问答链
-    # 定义 Embeddings
-    # embeddings = HuggingFaceEmbeddings(model_name="/home/xlab-app-center/model/sentence-transformer")
-
-    # 向量数据库持久化路径
-    # persist_directory = 'data_base/vector_db/chroma'
-
-    # 加载数据库
-    # vectordb = Chroma(
-    #     persist_directory=persist_directory,  # 允许我们将persist_directory目录保存到磁盘上
-    #     embedding_function=embeddings
-    # )
-
-    # 加载自定义 LLM
-    llm = InternLM_LLM(model_path = "/home/xlab-app-center/.cache/model/OpenLMLab/InternLM-chat-7b")
-
-    # 定义一个 Prompt Template
-    template = """使用以下上下文来回答最后的问题。如果你不知道答案，就说你不知道，不要试图编造答
-    案。尽量使答案简明扼要。总是在回答的最后说“谢谢你的提问！”。
-    {context}
-    问题: {question}
-    有用的回答:"""
-
-    QA_CHAIN_PROMPT = PromptTemplate(input_variables=["context","question"],template=template)
-
-    # 运行 chain
-    qa_chain = RetrievalQA.from_chain_type(llm,return_source_documents=True,chain_type_kwargs={"prompt":QA_CHAIN_PROMPT})
-    
-    return qa_chain
-
-class Model_center():
-    """
-    存储检索问答链的对象 
-    """
-    def __init__(self):
-        # 构造函数，加载检索问答链
-        self.chain = load_chain()
-
-    def qa_chain_self_answer(self, question: str, chat_history: list = []):
-        """
-        调用问答链进行回答
-        """
-        if question == None or len(question) < 1:
-            return "", chat_history
-        try:
-            chat_history.append(
-                (question, self.chain({"query": question})["result"]))
-            # 将问答结果直接附加到问答历史中，Gradio 会将其展示出来
-            return "", chat_history
-        except Exception as e:
-            return e, chat_history
+@st.cache_resource
+def load_model():
+    model = (
+        AutoModelForCausalLM.from_pretrained("/home/xlab-app-center/.cache/model/Shanghai_AI_Laboratory/internlm-chat-7b", trust_remote_code=True)
+        .to(torch.bfloat16)
+        .cuda()
+    )
+    tokenizer = AutoTokenizer.from_pretrained("/home/xlab-app-center/.cache/model/Shanghai_AI_Laboratory/internlm-chat-7b", trust_remote_code=True)
+    return model, tokenizer
 
 
-# 实例化核心功能对象
-model_center = Model_center()
-# 创建一个 Web 界面
-block = gr.Blocks()
-with block as demo:
-    with gr.Row(equal_height=True):   
-        with gr.Column(scale=15):
-            # 展示的页面标题
-            gr.Markdown("""<h1><center>InternLM</center></h1>
-                <center>书生浦语</center>
-                """)
+def prepare_generation_config():
+    with st.sidebar:
+        max_length = st.slider("Max Length", min_value=32, max_value=2048, value=2048)
+        top_p = st.slider("Top P", 0.0, 1.0, 0.8, step=0.01)
+        temperature = st.slider("Temperature", 0.0, 1.0, 0.7, step=0.01)
+        st.button("Clear Chat History", on_click=on_btn_click)
 
-    with gr.Row():
-        with gr.Column(scale=4):
-            # 创建一个聊天机器人对象
-            chatbot = gr.Chatbot(height=450, show_copy_button=True)
-            # 创建一个文本框组件，用于输入 prompt。
-            msg = gr.Textbox(label="Prompt/问题")
+    generation_config = GenerationConfig(max_length=max_length, top_p=top_p, temperature=temperature)
 
-            with gr.Row():
-                # 创建提交按钮。
-                db_wo_his_btn = gr.Button("Chat")
-            with gr.Row():
-                # 创建一个清除按钮，用于清除聊天机器人组件的内容。
-                clear = gr.ClearButton(
-                    components=[chatbot], value="Clear console")
-                
-        # 设置按钮的点击事件。当点击时，调用上面定义的 qa_chain_self_answer 函数，并传入用户的消息和聊天历史记录，然后更新文本框和聊天机器人组件。
-        db_wo_his_btn.click(model_center.qa_chain_self_answer, inputs=[
-                            msg, chatbot], outputs=[msg, chatbot])
+    return generation_config
 
-    gr.Markdown("""提醒：<br>
-    1. 初始化数据库时间可能较长，请耐心等待。
-    2. 使用中如果出现异常，将会在文本输入框进行展示，请不要惊慌。 <br>
-    """)
-gr.close_all()
-# 直接启动
-demo.launch()
+
+user_prompt = "<|User|>:{user}\n"
+robot_prompt = "<|Bot|>:{robot}<eoa>\n"
+cur_query_prompt = "<|User|>:{user}<eoh>\n<|Bot|>:"
+
+
+def combine_history(prompt):
+    messages = st.session_state.messages
+    total_prompt = ""
+    for message in messages:
+        cur_content = message["content"]
+        if message["role"] == "user":
+            cur_prompt = user_prompt.replace("{user}", cur_content)
+        elif message["role"] == "robot":
+            cur_prompt = robot_prompt.replace("{robot}", cur_content)
+        else:
+            raise RuntimeError
+        total_prompt += cur_prompt
+    total_prompt = total_prompt + cur_query_prompt.replace("{user}", prompt)
+    return total_prompt
+
+
+def main():
+    # torch.cuda.empty_cache()
+    print("load model begin.")
+    model, tokenizer = load_model()
+    print("load model end.")
+
+    user_avator = "doc/imgs/user.png"
+    robot_avator = "doc/imgs/robot.png"
+
+    st.title("InternLM-Chat-7B")
+
+    generation_config = prepare_generation_config()
+
+    # Initialize chat history
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+
+    # Display chat messages from history on app rerun
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"], avatar=message.get("avatar")):
+            st.markdown(message["content"])
+
+    # Accept user input
+    if prompt := st.chat_input("What is up?"):
+        # Display user message in chat message container
+        with st.chat_message("user", avatar=user_avator):
+            st.markdown(prompt)
+        real_prompt = combine_history(prompt)
+        # Add user message to chat history
+        st.session_state.messages.append({"role": "user", "content": prompt, "avatar": user_avator})
+
+        with st.chat_message("robot", avatar=robot_avator):
+            message_placeholder = st.empty()
+            for cur_response in generate_interactive(
+                model=model,
+                tokenizer=tokenizer,
+                prompt=real_prompt,
+                additional_eos_token_id=103028,
+                **asdict(generation_config),
+            ):
+                # Display robot response in chat message container
+                message_placeholder.markdown(cur_response + "▌")
+            message_placeholder.markdown(cur_response)
+        # Add robot response to chat history
+        st.session_state.messages.append({"role": "robot", "content": cur_response, "avatar": robot_avator})
+        torch.cuda.empty_cache()
+
+
+if __name__ == "__main__":
+    main()

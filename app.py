@@ -27,8 +27,8 @@ from transformers.utils import logging
 
 logger = logging.get_logger(__name__)
 
-# from openxlab.model import download
-# download(model_repo='OpenLMLab/InternLM-chat-7b')
+from openxlab.model import download
+download(model_repo='OpenLMLab/InternLM-chat-7b')
 
 
 @dataclass

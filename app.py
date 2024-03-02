@@ -11,7 +11,7 @@ from dataclasses import asdict
 
 import streamlit as st
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoModel
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from transformers.utils import logging
 import copy
 import warnings
@@ -30,11 +30,17 @@ download(model_repo='jujunchen/itsaysay')
 def on_btn_click():
     del st.session_state.messages
 
+bnb_config = BitsAndBytesConfig(
+    load_in_4bit=True,
+    bnb_4bit_use_double_quant=True,
+    bnb_4bit_quant_type="nf4",
+    bnb_4bit_compute_dtype=torch.bfloat16
+)
 
 @st.cache_resource
 def load_model():
     model = (
-        AutoModelForCausalLM.from_pretrained("/home/xlab-app-center/.cache/model/jujunchen_itsaysay", trust_remote_code=True)
+        AutoModelForCausalLM.from_pretrained("/home/xlab-app-center/.cache/model/jujunchen_itsaysay", quantization_config=bnb_config, trust_remote_code=True)
         .to(torch.bfloat16)
         .cuda()
     )

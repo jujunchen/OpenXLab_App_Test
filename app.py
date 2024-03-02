@@ -20,7 +20,6 @@ from typing import Callable, List, Optional
 
 from torch import nn
 from transformers.generation.utils import LogitsProcessorList, StoppingCriteriaList
-from tools.transformers.interface import GenerationConfig, generate_interactive
 
 logger = logging.get_logger(__name__)
 
